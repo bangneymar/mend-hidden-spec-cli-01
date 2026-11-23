@@ -306,6 +306,24 @@ function parseDiffPath(line: string): string | null {
   return p;
 }
 
+/** An edit that creates a file from a unified diff's hunks (fails if it exists). */
+function makeCreate(p: string, hunks: Hunk[]): Edit {
+  return (tree) => {
+    if (!safe(p)) throw new Fail('unsafe', p);
+    if (tree.get(p) !== null) throw new Fail('exists', p);
+    tree.now.set(p, createdFromHunks(hunks));
+  };
+}
+
+/** An edit that deletes a file (fails if it is missing). */
+function makeDelete(p: string): Edit {
+  return (tree) => {
+    if (!safe(p)) throw new Fail('unsafe', p);
+    if (tree.get(p) === null) throw new Fail('missing', p);
+    tree.now.set(p, null);
+  };
+}
+
 function parseUnified(lines: string[], strict: boolean): Edit[] {
   interface Sec {
     pairOld?: string | null;
@@ -411,38 +429,18 @@ function parseUnified(lines: string[], strict: boolean): Edit[] {
     const isD = newP === null || s.delFile;
     if (isC && isD) {
       if (typeof newP === 'string') {
-        const p = newP;
-        edits.push((tree) => {
-          if (!safe(p)) throw new Fail('unsafe', p);
-          if (tree.get(p) !== null) throw new Fail('exists', p);
-          tree.now.set(p, createdFromHunks(hunks));
-        });
+        edits.push(makeCreate(newP, hunks));
       } else if (typeof oldP === 'string') {
-        const p = oldP;
-        edits.push((tree) => {
-          if (!safe(p)) throw new Fail('unsafe', p);
-          if (tree.get(p) === null) throw new Fail('missing', p);
-          tree.now.set(p, null);
-        });
+        edits.push(makeDelete(oldP));
       } else {
         edits.push(() => {
           throw new Fail('unsafe', '');
         });
       }
     } else if (isC) {
-      const p = newP as string;
-      edits.push((tree) => {
-        if (!safe(p)) throw new Fail('unsafe', p);
-        if (tree.get(p) !== null) throw new Fail('exists', p);
-        tree.now.set(p, createdFromHunks(hunks));
-      });
+      edits.push(makeCreate(newP as string, hunks));
     } else if (isD) {
-      const p = oldP as string;
-      edits.push((tree) => {
-        if (!safe(p)) throw new Fail('unsafe', p);
-        if (tree.get(p) === null) throw new Fail('missing', p);
-        tree.now.set(p, null);
-      });
+      edits.push(makeDelete(oldP as string));
     } else if (oldP !== newP) {
       const op = oldP as string;
       const np = newP as string;
